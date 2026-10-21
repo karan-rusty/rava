@@ -13,6 +13,8 @@ mod audio;
 mod color;
 mod render;
 
+use audio::Capture as _;
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("rava: {error:#}");
@@ -22,8 +24,8 @@ fn main() {
 
 fn run() -> Result<()> {
     let _terminal = Terminal::enter()?;
-    let mut source = audio::TestTone::new(44_100);
-    let mut analyzer = analyzer::Analyzer::new(44_100);
+    let mut source = audio::TestSource::new(44_100);
+    let mut analyzer = analyzer::Analyzer::new(source.sample_rate());
     let mut renderer = render::Renderer::new()?;
     let mut samples = Vec::new();
     let mut previous = Instant::now();
@@ -42,7 +44,7 @@ fn run() -> Result<()> {
         let dt = now.duration_since(previous).as_secs_f32().min(0.1);
         previous = now;
 
-        source.read(735, &mut samples);
+        source.read(&mut samples)?;
         analyzer.push(&samples);
         analyzer.update(dt);
         renderer.draw(analyzer.values())?;
