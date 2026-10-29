@@ -2,15 +2,19 @@ use anyhow::Result;
 use std::time::{Duration, Instant};
 
 mod file;
+mod gate;
+mod live;
 pub mod synth;
 
 pub(crate) use file::FileSource;
+pub use gate::SilenceGate;
+pub use live::LiveSource;
 pub use synth::TestSource;
 
 pub const CHUNK_FRAMES: usize = 735;
 
 pub trait Capture {
-    /// Appends interleaved stereo frames to `out`.
+    /// Replaces `out` with the next chunk of interleaved stereo frames.
     fn read(&mut self, out: &mut Vec<f32>) -> Result<usize>;
     fn sample_rate(&self) -> u32;
 }

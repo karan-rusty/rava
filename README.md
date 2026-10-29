@@ -1,20 +1,42 @@
-# rava — a terminal audio visualizer
+# rava — a CAVA-style terminal audio visualizer
 
-A terminal audio visualizer written in Rust. Its spectrum is a port of the one
-in [NoctaVox](https://github.com/Jaxx497/NoctaVox); the original bar renderer is
-still available too.
+A terminal audio visualizer for Linux written in Rust. By default it listens to
+the default PulseAudio/PipeWire output and stays blank while the machine is
+silent, waking up as soon as an application starts playing. The spectrum is a
+port of the one in [NoctaVox](https://github.com/Jaxx497/NoctaVox); the
+original bar renderer is still available too.
 
 ## Run
 
 ```sh
-cargo run --release
-cargo run --release -- --file path/to/track.wav
+cargo run --release                       # live system audio
+cargo run --release -- --source NAME      # a specific monitor/source
+cargo run --release -- --file track.wav   # loop a WAV instead
+cargo run --release -- --demo             # built-in synthetic loop
 cargo run --release -- --mode bars
 cargo run --release -- --config assets/config.toml
 ```
 
-Without `--file` rava synthesizes a short beat loop, so it runs anywhere.
-`--file` decodes a WAV (any sample rate or channel count) and loops it.
+Live capture needs `parec`, which ships with PulseAudio
+(`pulseaudio-utils`) and with PipeWire's PulseAudio compatibility layer.
+`--source` takes a source name from `pactl list short sources`; sources ending
+in `.monitor` carry what an output device is playing. The default, `auto`, uses
+the monitor of the default sink. rava never plays audio itself; it only reads
+the mix.
+
+`--file` decodes a WAV (any sample rate, mono or stereo) and loops it. `--demo`
+synthesizes a short beat loop. Neither applies the silence gate: they always
+draw.
+
+## Silence
+
+With live input the screen starts blank. The first audible chunk wakes it
+immediately, and it goes blank again once the input has been quieter than
+`-60 dBFS` RMS for one second. Both values live in `[input]`; set
+`idle_after_ms = 0` to blank on the first silent chunk, or lower
+`threshold_db` if very quiet audio should count as playing. Nothing is drawn
+while idle, so a blank screen with the terminal still captured is expected;
+`q` or `Esc` quits.
 
 Keys:
 
@@ -51,6 +73,15 @@ Every key is optional; an empty file gives the built-in look. Unknown keys and
 unknown enum values are errors.
 
 ```toml
+[input]
+# "auto" monitors the default sink; otherwise a source name from
+# `pactl list short sources`. Use a `.monitor` source to visualize output.
+source = "auto"
+# Input quieter than this RMS level (dBFS) counts as silence.
+threshold_db = -60.0
+# Milliseconds of silence before the screen blanks; 0 blanks immediately.
+idle_after_ms = 1000
+
 [general]
 # Visualizer to start with: "spectrum" or "bars" (`w` toggles at runtime).
 mode = "spectrum"

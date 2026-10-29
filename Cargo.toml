@@ -3,7 +3,7 @@ name = "rava"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
-description = "Terminal audio visualizer: spectrum, waveform, oscilloscope and progress bar"
+description = "CAVA-style terminal audio visualizer with a spectrum and bars"
 license = "MIT"
 
 [dependencies]

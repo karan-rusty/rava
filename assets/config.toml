@@ -3,6 +3,16 @@
 # Every key is optional and the values below are the built-in defaults, so this
 # file mostly serves as documentation. Unknown keys are rejected.
 
+[input]
+# Live capture source. "auto" is the monitor of the default PulseAudio/PipeWire
+# sink -- everything the machine is currently playing. Any name from
+# `pactl list short sources` also works; a *.monitor source captures output.
+source = "auto"
+# RMS level in dBFS at or below which input counts as silence.
+threshold_db = -60.0
+# Milliseconds of silence before the screen blanks. 0 blanks immediately.
+idle_after_ms = 1000
+
 [general]
 # Starting visualizer: "spectrum" (NoctaVox-style braille spectrum) or "bars".
 # Press `w` while running to switch.

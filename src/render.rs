@@ -102,18 +102,28 @@ impl Renderer {
         self.width
     }
 
+    /// Blank the whole screen. Used when live capture has gone quiet.
+    pub fn draw_idle(&mut self) -> Result<()> {
+        self.clear();
+        self.finish()
+    }
+
     /// Draw the wide eighth-block bars.
     pub fn draw_bars(&mut self, values: &[f32]) -> Result<()> {
-        self.cells.fill(Cell::default());
+        self.clear();
         self.paint_bars(values);
         self.finish()
     }
 
     /// Draw the NoctaVox braille spectrum. `values` has one entry per column.
     pub fn draw_spectrum(&mut self, values: &[f32], elapsed: f32) -> Result<()> {
-        self.cells.fill(Cell::default());
+        self.clear();
         self.paint_spectrum(values, elapsed);
         self.finish()
+    }
+
+    fn clear(&mut self) {
+        self.cells.fill(Cell::default());
     }
 
     fn paint_bars(&mut self, values: &[f32]) {
@@ -386,5 +396,15 @@ mod tests {
             assert_eq!(cell(&renderer, 2, y).ch, '█');
             assert_eq!(cell(&renderer, 1, y).ch, ' ');
         }
+    }
+
+    #[test]
+    fn clearing_removes_a_previous_frame() {
+        let mut renderer = test_renderer(4, 8);
+        renderer.paint_bars(&[1.0, 1.0]);
+        assert!(renderer.cells.iter().any(|c| c.ch != ' '));
+
+        renderer.clear();
+        assert!(renderer.cells.iter().all(|c| *c == Cell::default()));
     }
 }
