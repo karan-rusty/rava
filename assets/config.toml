@@ -1,0 +1,35 @@
+# rava configuration
+#
+# Every key is optional and the values below are the built-in defaults, so this
+# file mostly serves as documentation. Unknown keys are rejected.
+
+[general]
+# Starting visualizer: "spectrum" (NoctaVox-style braille spectrum) or "bars".
+# Press `w` while running to switch.
+mode = "spectrum"
+
+# Number of bars; 0 means "as many as the terminal fits".
+bars = 0
+# Columns reserved per bar, and blank columns between bars.
+bar_width = 2
+bar_spacing = 0
+# "average" (fold both channels), "split", or "mirror".
+channel_mode = "average"
+
+[output]
+# "vertical" or "horizontal"; only the bars renderer honors this.
+orientation = "vertical"
+# "gradient" uses the list below; "solid" uses `color` everywhere.
+color_mode = "gradient"
+color = "#00e5ff"
+# From quietest to loudest. The spectrum scrolls through it horizontally.
+gradient = ["#00e5ff", "#2979ff", "#7c4dff", "#ff4081"]
+
+[spectrum]
+# Grow the bars above and below the center line.
+mirror = false
+# Per-frame fall multiplier after a peak, clamped to 0.7..=0.97.
+# Higher values hold the bars longer.
+decay = 0.85
+# Gradient scroll speed in cycles per second; 0.0 disables scrolling.
+speed = 0.0

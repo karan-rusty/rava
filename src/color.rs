@@ -58,6 +58,12 @@ impl Rgb {
         )
     }
 
+    /// Dim the color toward black, as NoctaVox does for quiet spectrum bars.
+    pub fn scale(self, factor: f32) -> Self {
+        let apply = |channel: u8| (channel as f32 * factor).clamp(0.0, 255.0) as u8;
+        Self::new(apply(self.r), apply(self.g), apply(self.b))
+    }
+
     /// Appends the ANSI 24-bit foreground parameters (without the `ESC[`/`m`).
     pub fn write_fg(self, out: &mut String) {
         use std::fmt::Write;
@@ -115,5 +121,67 @@ impl Gradient {
         let index = (t.floor() as usize).min(self.stops.len() - 2);
         let local = t - index as f32;
         self.stops[index].lerp(self.stops[index + 1], local)
+    }
+
+    /// NoctaVox's scrolling ramp.
+    ///
+    /// The position (plus `time * speed`) wraps around the ends, and each
+    /// segment is sharpened so gradient stops read as stops instead of a
+    /// continuous smear. A one-stop gradient is a solid color.
+    pub fn at_wrapped(&self, position: f32, time: f32, speed: f32) -> Rgb {
+        if self.stops.len() == 1 {
+            return self.stops[0];
+        }
+
+        let t = (position + time * speed).rem_euclid(1.0);
+        let count = self.stops.len();
+        let segment_f = t * count as f32;
+        let segment = (segment_f as usize).min(count - 1);
+        let local = segment_f - segment as f32;
+        let sharp = sharpen(local);
+        self.stops[segment].lerp(self.stops[(segment + 1) % count], sharp)
+    }
+}
+
+/// Ease each gradient segment so the stops dominate the middle of the ramp.
+fn sharpen(t: f32) -> f32 {
+    if t < 0.5 {
+        (t * 2.0).powi(2) / 2.0
+    } else {
+        1.0 - ((1.0 - t) * 2.0).powi(2) / 2.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scaling_dims_every_channel() {
+        assert_eq!(Rgb::new(200, 100, 10).scale(0.5), Rgb::new(100, 50, 5));
+        assert_eq!(Rgb::new(200, 100, 10).scale(2.0), Rgb::new(255, 200, 20));
+    }
+
+    #[test]
+    fn wrapped_gradient_cycles_back_to_the_first_stop() {
+        let red = Rgb::new(255, 0, 0);
+        let blue = Rgb::new(0, 0, 255);
+        let gradient = Gradient::new(vec![red, blue]).unwrap();
+
+        assert_eq!(gradient.at_wrapped(0.0, 0.0, 0.0), red);
+        assert_eq!(gradient.at_wrapped(0.5, 0.0, 0.0), blue);
+        // One full cycle lands on the same color again.
+        assert_eq!(gradient.at_wrapped(0.0, 1.0, 1.0), red);
+        assert_eq!(
+            gradient.at_wrapped(0.9, 0.2, 1.0),
+            gradient.at_wrapped(0.1, 0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn static_gradient_ignores_position_and_time() {
+        let color = Rgb::new(1, 2, 3);
+        let gradient = Gradient::new(vec![color]).unwrap();
+        assert_eq!(gradient.at_wrapped(0.4, 12.0, 3.0), color);
     }
 }

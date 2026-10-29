@@ -8,6 +8,29 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
+use crate::spectrum::DEFAULT_DECAY;
+
+/// Which visualizer starts up, and what `w` cycles through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, clap::ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    /// NoctaVox's auto-gained braille spectrum.
+    #[default]
+    Spectrum,
+    /// Wide eighth-block bars with a vertical gradient.
+    Bars,
+}
+
+impl Mode {
+    /// The next mode in the cycle used by the `w` key.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Spectrum => Self::Bars,
+            Self::Bars => Self::Spectrum,
+        }
+    }
+}
+
 /// How the two audio channels are laid out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -44,6 +67,8 @@ pub enum ColorMode {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct General {
+    /// Visualizer shown at startup; `w` switches between the two at runtime.
+    pub mode: Mode,
     /// Number of bars to draw; `0` means as many as fit the terminal.
     pub bars: usize,
     /// Columns (or rows, when horizontal) reserved for each bar.
@@ -56,10 +81,35 @@ pub struct General {
 impl Default for General {
     fn default() -> Self {
         Self {
+            mode: Mode::Spectrum,
             bars: 0,
             bar_width: 2,
             bar_spacing: 0,
             channel_mode: ChannelMode::Average,
+        }
+    }
+}
+
+/// Settings for the NoctaVox-style spectrum. `[spectrum]` ignores the bar
+/// layout in `[general]`: it always draws one braille column per band.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SpectrumSettings {
+    /// Grow the bars both above and below the center line.
+    pub mirror: bool,
+    /// How fast bars fall after a peak, between `0.7` and `0.97`; higher is
+    /// slower. Out-of-range values are clamped by the analyser.
+    pub decay: f32,
+    /// Gradient scroll speed in cycles per second; `0.0` keeps it still.
+    pub speed: f32,
+}
+
+impl Default for SpectrumSettings {
+    fn default() -> Self {
+        Self {
+            mirror: false,
+            decay: DEFAULT_DECAY,
+            speed: 0.0,
         }
     }
 }
@@ -71,7 +121,7 @@ pub struct Output {
     pub color_mode: ColorMode,
     /// Color used when `color_mode = "solid"`.
     pub color: String,
-    /// Gradient stops, from the quietest bar to the loudest.
+    /// Gradient stops: bottom to top on the bars, left to right on the spectrum.
     pub gradient: Vec<String>,
 }
 
@@ -94,6 +144,7 @@ impl Default for Output {
 pub struct Config {
     pub general: General,
     pub output: Output,
+    pub spectrum: SpectrumSettings,
 }
 
 impl Config {
@@ -110,5 +161,53 @@ impl Config {
     /// Parse TOML into a configuration.
     pub fn parse(text: &str) -> Result<Self> {
         toml::from_str(text).context("could not parse TOML")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_config_is_the_builtin_look() {
+        let config = Config::parse("").unwrap();
+        assert_eq!(config.general.mode, Mode::Spectrum);
+        assert_eq!(config.general.bars, 0);
+        assert!(!config.spectrum.mirror);
+        assert_eq!(config.spectrum.decay, DEFAULT_DECAY);
+        assert_eq!(config.spectrum.speed, 0.0);
+    }
+
+    #[test]
+    fn parses_mode_and_spectrum_overrides() {
+        let config = Config::parse(
+            r#"
+            [general]
+            mode = "bars"
+
+            [spectrum]
+            mirror = true
+            decay = 0.9
+            speed = 0.25
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(config.general.mode, Mode::Bars);
+        assert!(config.spectrum.mirror);
+        assert_eq!(config.spectrum.decay, 0.9);
+        assert_eq!(config.spectrum.speed, 0.25);
+    }
+
+    #[test]
+    fn rejects_unknown_keys_and_modes() {
+        assert!(Config::parse("[spectrum]\nunknown = 1\n").is_err());
+        assert!(Config::parse("[general]\nmode = \"waveform\"\n").is_err());
+    }
+
+    #[test]
+    fn modes_cycle_back_to_where_they_started() {
+        assert_eq!(Mode::Spectrum.next().next(), Mode::Spectrum);
+        assert_eq!(Mode::Bars.next(), Mode::Spectrum);
     }
 }

@@ -43,7 +43,7 @@ impl Analyzer {
     pub fn push(&mut self, samples: &[f32]) {
         if samples.len() >= FFT_SIZE {
             self.history
-            .copy_from_slice(&samples[samples.len() - FFT_SIZE..]);
+                .copy_from_slice(&samples[samples.len() - FFT_SIZE..]);
             return;
         }
         let keep = FFT_SIZE - samples.len();
@@ -51,12 +51,12 @@ impl Analyzer {
         self.history[keep..].copy_from_slice(samples);
     }
 
-    pub fn update(&mut self, dt: f32){
+    pub fn update(&mut self, dt: f32) {
         for (i, sample) in self.history.iter().enumerate() {
             self.input[i] = sample * self.window[i];
         }
         self.fft
-        .process_with_scratch(&mut self.input, &mut self.spectrum, &mut self.scratch)
+            .process_with_scratch(&mut self.input, &mut self.spectrum, &mut self.scratch)
             .expect("FFT buffer sizes are fixed");
 
         let scale = 2.0 / FFT_SIZE as f32;
@@ -64,7 +64,7 @@ impl Analyzer {
             let end = (*end).min(self.spectrum.len());
             let start = (*start).min(end.saturating_sub(1));
             let mean = self.spectrum[start..end]
-            .iter()
+                .iter()
                 .map(|value| (value.re * value.re + value.im * value.im).sqrt())
                 .sum::<f32>()
                 / (end - start).max(1) as f32;
@@ -85,18 +85,18 @@ impl Analyzer {
     }
 }
 
-fn make_bands(sample_rate: u32) -> Vec<(usize,usize)> {
+fn make_bands(sample_rate: u32) -> Vec<(usize, usize)> {
     let lower = 50.0f32;
     let higher = 12_000.0f32;
     let ratio = (higher / lower).powf(1.0 / BARS as f32);
     let bins_per_hz = FFT_SIZE as f32 / sample_rate as f32;
     (0..BARS)
-    .map(|i| {
+        .map(|i| {
             let f0 = lower * ratio.powi(i as i32);
             let f1 = lower * ratio.powi(i as i32 + 1);
             let start = ((f0 * bins_per_hz) as usize).clamp(1, FFT_SIZE / 2);
             let end = (((f1 * bins_per_hz) as usize).max(start + 1)).min(FFT_SIZE / 2 + 1);
             (start, end)
         })
-            .collect()
+        .collect()
 }
