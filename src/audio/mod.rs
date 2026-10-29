@@ -1,8 +1,10 @@
 use anyhow::Result;
 use std::time::{Duration, Instant};
 
+mod file;
 pub mod synth;
 
+pub(crate) use file::FileSource;
 pub use synth::TestSource;
 
 pub const CHUNK_FRAMES: usize = 735;
@@ -13,8 +15,6 @@ pub trait Capture {
     fn sample_rate(&self) -> u32;
 }
 
-/// Sleeps until the chunk that was just produced is due, keeping a
-/// synthetic source running at wall-clock speed.
 pub struct Pacer {
     start: Instant,
     frames: u64,

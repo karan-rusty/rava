@@ -1,19 +1,35 @@
+use std::io;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
 use anyhow::{Context, Result};
+use clap::Parser;
 use crossterm::cursor::{Hide, Show};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
     Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use std::io;
-use std::time::{Duration, Instant};
+
+use audio::{FileSource, TestSource};
 
 mod analyzer;
 mod audio;
 mod color;
+mod config;
 mod render;
 
-use audio::Capture as _;
+/// Playback rate the sources resample to.
+const SAMPLE_RATE: u32 = 44_100;
+
+#[derive(Debug, Parser)]
+#[command(name = "rava", version, about = "A console audio visualizer")]
+struct Args {
+    #[arg(short, long, value_name = "FILE")]
+    config: Option<PathBuf>,
+    #[arg(long, value_name = "WAV")]
+    file: Option<String>,
+}
 
 fn main() {
     if let Err(error) = run() {
@@ -23,10 +39,16 @@ fn main() {
 }
 
 fn run() -> Result<()> {
+    let args = Args::parse();
+    let config = config::Config::load(args.config.as_deref())?;
+    let mut source: Box<dyn audio::Capture> = match args.file.as_deref() {
+        Some(path) => Box::new(FileSource::open(path, SAMPLE_RATE, true)?),
+        None => Box::new(TestSource::new(SAMPLE_RATE)),
+    };
+
     let _terminal = Terminal::enter()?;
-    let mut source = audio::TestSource::new(44_100);
     let mut analyzer = analyzer::Analyzer::new(source.sample_rate());
-    let mut renderer = render::Renderer::new()?;
+    let mut renderer = render::Renderer::new(&config)?;
     let mut samples = Vec::new();
     let mut previous = Instant::now();
 

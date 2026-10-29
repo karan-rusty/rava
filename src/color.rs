@@ -13,7 +13,6 @@ impl Rgb {
         Self { r, g, b }
     }
 
-    #[allow(dead_code)]
     pub fn parse(input: &str) -> Result<Self> {
         let s = input.trim().to_ascii_lowercase();
         if s.is_empty() {
@@ -63,6 +62,12 @@ impl Rgb {
     pub fn write_fg(self, out: &mut String) {
         use std::fmt::Write;
         let _ = write!(out, "38;2;{};{};{}", self.r, self.g, self.b);
+    }
+
+    /// Appends the ANSI 24-bit background parameters (without the `ESC[`/`m`).
+    pub fn write_bg(self, out: &mut String) {
+        use std::fmt::Write;
+        let _ = write!(out, "48;2;{};{};{}", self.r, self.g, self.b);
     }
 }
 
