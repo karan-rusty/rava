@@ -11,7 +11,7 @@ use crossterm::terminal::{
     Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 
-use audio::{FileSource, TestSource};
+use audio::{FileSource, LiveSource, SilenceGate, TestSource};
 
 mod analyzer;
 mod audio;
@@ -29,9 +29,17 @@ struct Args {
     /// TOML configuration file.
     #[arg(short, long, value_name = "FILE")]
     config: Option<PathBuf>,
-    /// Decode a WAV file instead of running the synthetic loop.
-    #[arg(long, value_name = "WAV")]
+    /// Decode and loop a WAV file instead of capturing live audio.
+    #[arg(long, value_name = "WAV", conflicts_with_all = ["source", "demo"])]
     file: Option<String>,
+    /// Capture system audio from this PulseAudio/PipeWire source.
+    ///
+    /// `auto` (the default) uses the monitor of the default output.
+    #[arg(short, long, value_name = "SOURCE", conflicts_with_all = ["file", "demo"])]
+    source: Option<String>,
+    /// Play the built-in synthetic loop instead of capturing audio.
+    #[arg(long, conflicts_with_all = ["file", "source"])]
+    demo: bool,
     /// Visualizer to start with; press `w` to cycle at runtime.
     #[arg(short, long, value_enum, value_name = "MODE")]
     mode: Option<config::Mode>,
@@ -48,10 +56,24 @@ fn run() -> Result<()> {
     let args = Args::parse();
     let config = config::Config::load(args.config.as_deref())?;
     let mut mode = args.mode.unwrap_or(config.general.mode);
-    let mut source: Box<dyn audio::Capture> = match args.file.as_deref() {
-        Some(path) => Box::new(FileSource::open(path, SAMPLE_RATE, true)?),
-        None => Box::new(TestSource::new(SAMPLE_RATE)),
+
+    // Without an explicit file or demo, capture whatever the machine is
+    // playing; `--source` (or `[input] source`) picks a specific source.
+    let live = args.file.is_none() && !args.demo;
+    let mut source: Box<dyn audio::Capture> = if let Some(path) = args.file.as_deref() {
+        Box::new(FileSource::open(path, SAMPLE_RATE, true)?)
+    } else if args.demo {
+        Box::new(TestSource::new(SAMPLE_RATE))
+    } else {
+        let requested = args.source.as_deref().unwrap_or(&config.input.source);
+        Box::new(LiveSource::open(requested, SAMPLE_RATE)?)
     };
+    let mut gate = live.then(|| {
+        SilenceGate::new(
+            config.input.threshold_db,
+            Duration::from_millis(config.input.idle_after_ms),
+        )
+    });
 
     let _terminal = Terminal::enter()?;
     let mut spectrum = spectrum::Spectrum::new(config.spectrum.decay);
@@ -61,6 +83,7 @@ fn run() -> Result<()> {
     let mut mono = Vec::new();
     let mut previous = Instant::now();
     let started = Instant::now();
+    let mut drawing = false;
 
     loop {
         if event::poll(Duration::ZERO).context("could not poll terminal events")?
@@ -94,13 +117,28 @@ fn run() -> Result<()> {
         analyzer.update(dt);
         spectrum.update(source.sample_rate());
 
-        match mode {
-            config::Mode::Bars => renderer.draw_bars(analyzer.values())?,
-            config::Mode::Spectrum => {
-                spectrum.remap_display(renderer.width());
-                renderer.draw_spectrum(spectrum.display_bins(), started.elapsed().as_secs_f32())?;
+        // Live input starts blank and blanks again after a quiet spell; the
+        // gate sees the raw (not mono-folded) stream so out-of-phase channels
+        // cannot look like silence.
+        let active = match gate.as_mut() {
+            Some(gate) => gate.observe(&samples, Instant::now()),
+            None => true,
+        };
+
+        if active {
+            match mode {
+                config::Mode::Bars => renderer.draw_bars(analyzer.values())?,
+                config::Mode::Spectrum => {
+                    spectrum.remap_display(renderer.width());
+                    renderer
+                        .draw_spectrum(spectrum.display_bins(), started.elapsed().as_secs_f32())?;
+                }
             }
+        } else if drawing {
+            // One blank frame is enough; while idle there is nothing to draw.
+            renderer.draw_idle()?;
         }
+        drawing = active;
 
         let elapsed = now.elapsed();
         let frame_time = Duration::from_secs_f32(1.0 / 60.0);
@@ -156,5 +194,26 @@ mod tests {
     #[test]
     fn unknown_mode_is_rejected() {
         assert!(Args::try_parse_from(["rava", "--mode", "waveform"]).is_err());
+    }
+
+    #[test]
+    fn live_capture_is_the_default() {
+        let args = Args::try_parse_from(["rava"]).unwrap();
+        assert!(args.file.is_none());
+        assert!(args.source.is_none());
+        assert!(!args.demo);
+    }
+
+    #[test]
+    fn parses_an_explicit_source() {
+        let args = Args::try_parse_from(["rava", "--source", "alsa_output.usb.monitor"]).unwrap();
+        assert_eq!(args.source.as_deref(), Some("alsa_output.usb.monitor"));
+    }
+
+    #[test]
+    fn input_modes_are_mutually_exclusive() {
+        assert!(Args::try_parse_from(["rava", "--file", "a.wav", "--source", "auto"]).is_err());
+        assert!(Args::try_parse_from(["rava", "--file", "a.wav", "--demo"]).is_err());
+        assert!(Args::try_parse_from(["rava", "--demo", "--source", "auto"]).is_err());
     }
 }

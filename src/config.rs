@@ -66,6 +66,28 @@ pub enum ColorMode {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+pub struct Input {
+    /// `"auto"` monitors the default sink; anything else is a PulseAudio or
+    /// PipeWire source name.
+    pub source: String,
+    /// RMS level (dBFS) at or below which audio counts as silence.
+    pub threshold_db: f32,
+    /// Milliseconds of silence before the screen goes blank.
+    pub idle_after_ms: u64,
+}
+
+impl Default for Input {
+    fn default() -> Self {
+        Self {
+            source: "auto".to_owned(),
+            threshold_db: -60.0,
+            idle_after_ms: 1_000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct General {
     /// Visualizer shown at startup; `w` switches between the two at runtime.
     pub mode: Mode,
@@ -142,6 +164,7 @@ impl Default for Output {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
+    pub input: Input,
     pub general: General,
     pub output: Output,
     pub spectrum: SpectrumSettings,
@@ -171,11 +194,31 @@ mod tests {
     #[test]
     fn empty_config_is_the_builtin_look() {
         let config = Config::parse("").unwrap();
+        assert_eq!(config.input.source, "auto");
+        assert_eq!(config.input.threshold_db, -60.0);
+        assert_eq!(config.input.idle_after_ms, 1_000);
         assert_eq!(config.general.mode, Mode::Spectrum);
         assert_eq!(config.general.bars, 0);
         assert!(!config.spectrum.mirror);
         assert_eq!(config.spectrum.decay, DEFAULT_DECAY);
         assert_eq!(config.spectrum.speed, 0.0);
+    }
+
+    #[test]
+    fn parses_live_input_settings() {
+        let config = Config::parse(
+            r#"
+            [input]
+            source = "alsa_output.usb.monitor"
+            threshold_db = -45.0
+            idle_after_ms = 250
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(config.input.source, "alsa_output.usb.monitor");
+        assert_eq!(config.input.threshold_db, -45.0);
+        assert_eq!(config.input.idle_after_ms, 250);
     }
 
     #[test]
@@ -197,6 +240,16 @@ mod tests {
         assert!(config.spectrum.mirror);
         assert_eq!(config.spectrum.decay, 0.9);
         assert_eq!(config.spectrum.speed, 0.25);
+    }
+
+    #[test]
+    fn shipped_config_parses() {
+        let config = Config::parse(include_str!("../assets/config.toml")).unwrap();
+        assert_eq!(config.input.source, "auto");
+        assert_eq!(config.input.threshold_db, -60.0);
+        assert_eq!(config.general.mode, Mode::Spectrum);
+        assert_eq!(config.output.gradient.len(), 4);
+        assert_eq!(config.spectrum.decay, DEFAULT_DECAY);
     }
 
     #[test]
