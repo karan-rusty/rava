@@ -8,8 +8,8 @@
 //! * NoctaVox auto-gains every band against its *own* running peak. A tone then
 //!   lifts its window sidelobes and the noise floor to the same height as the
 //!   tone itself, smearing one frequency across many columns. Here every frame
-//!   is normalized against its loudest band, so a tone stays a narrow spike and
-//!   the relative shape of the spectrum survives.
+//!   is normalized against its loudest band and mapped in decibels, so a tone
+//!   stays a narrow spike while quiet parts of a mix stay visible.
 //! * NoctaVox spreads its `bands` vector evenly over the display. That vector is
 //!   only roughly logarithmic: below ~430 Hz every band is one FFT bin wide, so
 //!   1 kHz lands well left of where a logarithmic axis puts it. This version maps
@@ -42,9 +42,10 @@ const BAND_RATIO: f32 = 1.05;
 /// Smallest frame peak, so digital silence cannot divide by zero.
 const PEAK_FLOOR: f32 = 1e-4;
 
-/// Display curve. A gentle 0.75 power keeps quiet high frequencies visible
-/// without turning a single tone's window main lobe into a wide fan.
-const LEVEL_CURVE: f32 = 0.75;
+/// Display curve. The spectrum is plotted in decibels below the loudest band
+/// in the frame: a 72 dB window keeps the quiet parts of a mix visible while a
+/// single tone still reads as a narrow spike instead of a wall.
+const DYNAMIC_RANGE_DB: f32 = 72.0;
 
 #[derive(Debug, Clone, Copy)]
 struct Band {
@@ -74,7 +75,7 @@ pub struct Spectrum {
     /// The decaying bar heights that are drawn.
     bins: Vec<f32>,
     display: Vec<f32>,
-    /// The loudest band in the current frame, used to normalize all bands.
+    /// The loudest band in the current frame, used as the dB reference.
     peak: f32,
     decay: f32,
     sample_rate: u32,
@@ -175,10 +176,14 @@ impl Spectrum {
         // reach full scale.
         self.peak = loudest.max(PEAK_FLOOR);
 
+        // Map each band's level logarithmically over a fixed window below the
+        // frame peak. Linear magnitudes make cymbals and strings vanish next to
+        // a kick drum; decibels keep the whole mix visible without giving every
+        // band its own gain.
+        let peak_db = 20.0 * self.peak.log10();
         for (index, bin) in self.bins.iter_mut().enumerate() {
-            let relative = (self.magnitudes[index] / self.peak)
-                .clamp(0.0, 1.0)
-                .powf(LEVEL_CURVE);
+            let level_db = 20.0 * self.magnitudes[index].max(1e-9).log10();
+            let relative = level_from_db(level_db, peak_db);
             if relative >= *bin {
                 *bin = relative;
             } else {
@@ -302,6 +307,12 @@ impl Spectrum {
         self.display.clear();
         self.peak = PEAK_FLOOR;
     }
+}
+
+/// Map a band level in dBFS onto the display, where the frame peak is `1.0`
+/// and `DYNAMIC_RANGE_DB` below it is `0.0`.
+fn level_from_db(level_db: f32, peak_db: f32) -> f32 {
+    ((level_db - (peak_db - DYNAMIC_RANGE_DB)) / DYNAMIC_RANGE_DB).clamp(0.0, 1.0)
 }
 
 fn clamp_decay(decay: f32) -> f32 {
@@ -520,5 +531,17 @@ mod tests {
         assert_eq!(Spectrum::new(2.0).decay, 0.97);
         assert_eq!(Spectrum::new(0.0).decay, 0.7);
         assert_eq!(Spectrum::new(f32::NAN).decay, DEFAULT_DECAY);
+    }
+
+    #[test]
+    fn maps_decibels_onto_the_display_range() {
+        assert_eq!(level_from_db(0.0, 0.0), 1.0);
+        assert!((level_from_db(-36.0, 0.0) - 0.5).abs() < 1e-6);
+        assert_eq!(level_from_db(-72.0, 0.0), 0.0);
+        assert_eq!(level_from_db(-90.0, 0.0), 0.0);
+
+        // The window follows the loudest band in the frame.
+        assert_eq!(level_from_db(-10.0, -10.0), 1.0);
+        assert!((level_from_db(-46.0, -10.0) - 0.5).abs() < 1e-6);
     }
 }
