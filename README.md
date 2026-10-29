@@ -63,7 +63,7 @@ gradient that dims toward black as the band gets quieter. Optional:
 `mirror = true` grows the bars above and below the center line, and `speed`
 scrolls the gradient.
 
-![The spectrum view in a 120x40 terminal](docs/spectrum.png)
+![The spectrum view in a 120x40 terminal](docs/rava-spectrum.png)
 
 ### `bars`
 
