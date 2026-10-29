@@ -22,7 +22,12 @@ No Rust toolchain and no particular glibc version is needed. To pin a release:
 curl -LsSf https://raw.githubusercontent.com/karan-rusty/rava/main/install.sh | sh -s -- --version v0.1.0
 ```
 
-Add `--prefix /usr/local` (as root) for a system-wide install. To uninstall:
+`~/.local/bin` is the standard per-user binary directory and is already on the
+`PATH` of many desktops; if it is on yours, `rava` works from any directory in a
+new terminal. The installer does not edit your shell startup files: when the
+directory is not on `PATH`, it prints the exact command for fish, bash, or zsh.
+Add `--prefix /usr/local` (as root) for a system-wide install in a directory
+that is normally on every user's `PATH`. To uninstall:
 
 ```sh
 curl -LsSf https://raw.githubusercontent.com/karan-rusty/rava/main/install.sh | sh -s -- --uninstall
