@@ -6,16 +6,52 @@ silent, waking up as soon as an application starts playing. The spectrum is a
 port of the one in [NoctaVox](https://github.com/Jaxx497/NoctaVox); the
 original bar renderer is still available too.
 
+## Install
+
+### Prebuilt binary (Linux)
+
+```sh
+curl -LsSf https://raw.githubusercontent.com/karan-rusty/rava/main/install.sh | sh
+```
+
+This downloads the latest static musl build for x86_64 or aarch64, verifies its
+SHA-256 against the release checksum, and installs it to `~/.local/bin/rava`.
+No Rust toolchain and no particular glibc version is needed. To pin a release:
+
+```sh
+curl -LsSf https://raw.githubusercontent.com/karan-rusty/rava/main/install.sh | sh -s -- --version v0.1.0
+```
+
+Add `--prefix /usr/local` (as root) for a system-wide install. To uninstall:
+
+```sh
+curl -LsSf https://raw.githubusercontent.com/karan-rusty/rava/main/install.sh | sh -s -- --uninstall
+```
+
+The prebuilt binaries are Linux-only, and live capture itself needs PulseAudio
+or PipeWire (`parec`).
+
+### From source
+
+```sh
+cargo install --git https://github.com/karan-rusty/rava --locked
+```
+
+Rust 1.95 or newer. From a checkout, `cargo install --path .` works too.
+`--file` and `--demo` do not need `parec`; live capture is Linux-only.
+
 ## Run
 
 ```sh
-cargo run --release                       # live system audio
-cargo run --release -- --source NAME      # a specific monitor/source
-cargo run --release -- --file track.wav   # loop a WAV instead
-cargo run --release -- --demo             # built-in synthetic loop
-cargo run --release -- --mode bars
-cargo run --release -- --config assets/config.toml
+rava                       # live system audio
+rava --source NAME         # a specific monitor/source
+rava --file track.wav      # loop a WAV instead
+rava --demo                # built-in synthetic loop
+rava --mode bars
+rava --config assets/config.toml
 ```
+
+From a checkout, replace `rava` with `cargo run --release --`.
 
 Live capture needs `parec`, which ships with PulseAudio
 (`pulseaudio-utils`) and with PipeWire's PulseAudio compatibility layer.

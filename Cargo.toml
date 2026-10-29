@@ -5,6 +5,11 @@ edition = "2024"
 rust-version = "1.95"
 description = "CAVA-style terminal audio visualizer with a spectrum and bars"
 license = "MIT"
+repository = "https://github.com/karan-rusty/rava"
+homepage = "https://github.com/karan-rusty/rava"
+readme = "README.md"
+keywords = ["visualizer", "audio", "terminal", "spectrum", "cava"]
+categories = ["command-line-utilities", "multimedia::audio"]
 
 [dependencies]
 anyhow = "1.0.104"
