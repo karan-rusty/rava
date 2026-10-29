@@ -54,12 +54,14 @@ samples, folded into roughly 110 bands from 20 Hz to 20 kHz. (NoctaVox uses
 2048 points; doubling the window keeps the bass bands distinct.) Columns are
 placed on a logarithmic frequency axis, so 1 kHz sits 57% of the way across
 rather than wherever its band happens to fall, and each column shows the
-tallest band in its slice. Each frame is normalized against its loudest band, so
-a tone stays a narrow spike instead of every band flattening to full height; bars
-fall by the exponential decay factor once the energy drops. Values below 5% are
-hidden, like NoctaVox's canvas. Color comes from a horizontal gradient that dims
-toward black as the band gets quieter. Optional: `mirror = true` grows the bars
-above and below the center line, and `speed` scrolls the gradient.
+tallest band in its slice. Each frame is normalized against its loudest band and
+mapped in decibels over a 72 dB window: a tone stays a narrow spike, while
+cymbals and quiet parts of a mix stay visible instead of collapsing next to the
+kick drum. Bars fall by the exponential decay factor once the energy drops.
+Values below 5% are hidden, like NoctaVox's canvas. Color comes from a horizontal
+gradient that dims toward black as the band gets quieter. Optional:
+`mirror = true` grows the bars above and below the center line, and `speed`
+scrolls the gradient.
 
 ![The spectrum view in a 120x40 terminal](docs/spectrum.png)
 

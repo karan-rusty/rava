@@ -14,7 +14,7 @@ use crate::spectrum::DEFAULT_DECAY;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
-    /// NoctaVox's auto-gained braille spectrum.
+    /// NoctaVox-style braille spectrum with a logarithmic frequency axis.
     #[default]
     Spectrum,
     /// Wide eighth-block bars with a vertical gradient.
