@@ -13,6 +13,9 @@ const BRAILLE_UP: [char; 3] = ['⣀', '⣤', '⣶'];
 const BRAILLE_DOWN: [char; 3] = ['⠉', '⠛', '⠿'];
 /// A fully lit braille cell.
 const BRAILLE_FULL: char = '⣿';
+/// NoctaVox clips its canvas below y = 0.05. The same cutoff keeps the noise
+/// floor and a tone's window sidelobes from lighting up the bottom rows.
+const MIN_SPECTRUM_VALUE: f32 = 0.05;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Cell {
@@ -170,7 +173,7 @@ impl Renderer {
 
         for (x, value) in values.iter().take(width).enumerate() {
             let value = value.clamp(0.0, 1.0);
-            if value <= 0.0 {
+            if value < MIN_SPECTRUM_VALUE {
                 continue;
             }
 
@@ -367,6 +370,16 @@ mod tests {
         let bar = cell(&renderer, 1, 7);
         assert_eq!(bar.ch, '⣿');
         assert!(bar.fg.is_some());
+    }
+
+    #[test]
+    fn spectrum_hides_bars_below_the_floor() {
+        let mut renderer = test_renderer(4, 10);
+        renderer.paint_spectrum(&[0.049], 0.0);
+        assert!(renderer.cells.iter().all(|cell| cell.ch == ' '));
+
+        renderer.paint_spectrum(&[0.051], 0.0);
+        assert!(renderer.cells.iter().any(|cell| cell.ch != ' '));
     }
 
     #[test]

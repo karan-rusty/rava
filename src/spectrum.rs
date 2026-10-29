@@ -1,13 +1,20 @@
-//! NoctaVox's spectrum display, ported to run on `realfft`.
+//! A NoctaVox-style braille spectrum with a true frequency axis.
 //!
-//! A 2048-point Hann window is transformed into ~100 log-spaced bands between
-//! 20 Hz and 20 kHz. Every band is auto-gained against its own running peak
-//! (instant attack, slow release), so quiet and loud passages both fill the
-//! screen, and falls back by an exponential decay factor when the energy drops.
-//! The bands are then resampled to the terminal width for drawing.
+//! The Hann window, logarithmic band layout, decay and braille
+//! presentation come from NoctaVox (`src/visualization/spectrum.rs`, MIT; see
+//! `THIRD_PARTY_NOTICES.md`). Two details are deliberately different, because
+//! the original makes a single tone look like it is "all over the place":
 //!
-//! Adapted from `Jaxx497/NoctaVox` (`src/visualization/spectrum.rs`, MIT); see
-//! `THIRD_PARTY_NOTICES.md`.
+//! * NoctaVox auto-gains every band against its *own* running peak. A tone then
+//!   lifts its window sidelobes and the noise floor to the same height as the
+//!   tone itself, smearing one frequency across many columns. Here every frame
+//!   is normalized against its loudest band, so a tone stays a narrow spike and
+//!   the relative shape of the spectrum survives.
+//! * NoctaVox spreads its `bands` vector evenly over the display. That vector is
+//!   only roughly logarithmic: below ~430 Hz every band is one FFT bin wide, so
+//!   1 kHz lands well left of where a logarithmic axis puts it. This version maps
+//!   each display column to 20 Hz..20 kHz logarithmically and interpolates the
+//!   band values at that frequency.
 
 use std::collections::VecDeque;
 use std::f32::consts::TAU;
@@ -17,7 +24,10 @@ use realfft::num_complex::Complex;
 use realfft::{RealFftPlanner, RealToComplex};
 
 /// FFT window, and the number of recent samples the spectrum looks at.
-pub const FFT_SIZE: usize = 2048;
+///
+/// NoctaVox uses 2048; 4096 halves the bin width so the 20 Hz..20 kHz bands
+/// stay distinct down into the bass instead of collapsing into one-bin bands.
+pub const FFT_SIZE: usize = 4096;
 
 /// Lowest and highest displayed frequency.
 pub const MIN_HZ: f32 = 20.0;
@@ -29,11 +39,12 @@ pub const DEFAULT_DECAY: f32 = 0.85;
 /// NoctaVox's spacing: each band is at least five percent wider than the last.
 const BAND_RATIO: f32 = 1.05;
 
-/// Smallest peak a band is normalized against, so silence cannot divide by zero.
-const PEAK_FLOOR: f32 = 3e-3;
+/// Smallest frame peak, so digital silence cannot divide by zero.
+const PEAK_FLOOR: f32 = 1e-4;
 
-/// How much a band's running peak falls per analysed frame.
-const PEAK_RELEASE: f32 = 0.99;
+/// Display curve. A gentle 0.75 power keeps quiet high frequencies visible
+/// without turning a single tone's window main lobe into a wide fan.
+const LEVEL_CURVE: f32 = 0.75;
 
 #[derive(Debug, Clone, Copy)]
 struct Band {
@@ -41,6 +52,8 @@ struct Band {
     lo: f32,
     #[cfg_attr(not(test), allow(dead_code))]
     hi: f32,
+    /// Frequency used to place this band on the logarithmic display axis.
+    center: f32,
     /// Inclusive FFT bin range.
     start: usize,
     /// Exclusive FFT bin range.
@@ -56,9 +69,13 @@ pub struct Spectrum {
     scratch: Vec<Complex<f32>>,
     history: VecDeque<f32>,
     bands: Vec<Band>,
-    band_peaks: Vec<f32>,
+    /// One normalized magnitude per band for the current frame.
+    magnitudes: Vec<f32>,
+    /// The decaying bar heights that are drawn.
     bins: Vec<f32>,
     display: Vec<f32>,
+    /// The loudest band in the current frame, used to normalize all bands.
+    peak: f32,
     decay: f32,
     sample_rate: u32,
 }
@@ -81,9 +98,10 @@ impl Spectrum {
             scratch,
             history: VecDeque::with_capacity(FFT_SIZE),
             bands: Vec::new(),
-            band_peaks: Vec::new(),
+            magnitudes: Vec::new(),
             bins: Vec::new(),
             display: Vec::new(),
+            peak: PEAK_FLOOR,
             decay: clamp_decay(decay),
             sample_rate: 0,
         }
@@ -139,6 +157,7 @@ impl Spectrum {
 
         // realfft is unnormalized: a full-scale sine peaks near FFT_SIZE / 2.
         let scale = 2.0 / FFT_SIZE as f32;
+        let mut loudest = 0.0_f32;
         for (index, band) in self.bands.iter().enumerate() {
             let values = &self.output[band.start..band.end];
             let magnitude = if values.is_empty() {
@@ -147,48 +166,104 @@ impl Spectrum {
                 values.iter().map(|value| value.norm()).sum::<f32>() / values.len() as f32
             };
             let normalized = magnitude * scale;
+            self.magnitudes[index] = normalized;
+            loudest = loudest.max(normalized);
+        }
 
-            // Instant attack, slow release.
-            if normalized > self.band_peaks[index] {
-                self.band_peaks[index] = normalized;
-            } else {
-                self.band_peaks[index] = (self.band_peaks[index] * PEAK_RELEASE).max(1e-3);
-            }
+        // One peak for the whole frame. This is the key difference from
+        // NoctaVox's per-band normalization, which makes every non-empty band
+        // reach full scale.
+        self.peak = loudest.max(PEAK_FLOOR);
 
-            let relative = (normalized / self.band_peaks[index]).clamp(0.0, 1.0);
-            if relative > self.bins[index] {
-                self.bins[index] = relative;
+        for (index, bin) in self.bins.iter_mut().enumerate() {
+            let relative = (self.magnitudes[index] / self.peak)
+                .clamp(0.0, 1.0)
+                .powf(LEVEL_CURVE);
+            if relative >= *bin {
+                *bin = relative;
             } else {
-                self.bins[index] *= self.decay;
+                *bin *= self.decay;
             }
         }
     }
 
-    /// Interpolate the bands down to `width` display columns.
+    /// Place the bands on a logarithmic 20 Hz..20 kHz axis and interpolate them
+    /// down to `width` display columns.
     pub fn remap_display(&mut self, width: usize) {
         if width == 0 {
             return;
         }
-        if self.bins.is_empty() {
+        if self.bins.is_empty() || self.bands.is_empty() {
             self.display.clear();
             return;
         }
 
         self.display.resize(width, 0.0);
-        let last = self.bins.len() - 1;
-        let denominator = (width - 1).max(1) as f32;
-        for (column, out) in self.display.iter_mut().enumerate() {
-            let source = (column as f32 / denominator) * last as f32;
-            let lo = source.floor() as usize;
-            let hi = (lo + 1).min(last);
-            let fraction = source - lo as f32;
-            *out = self.bins[lo] * (1.0 - fraction) + self.bins[hi] * fraction;
+        if width == 1 {
+            let center = (MIN_HZ * MAX_HZ).sqrt();
+            self.display[0] = self.value_at(center);
+            return;
+        }
+
+        let ratio = MAX_HZ / MIN_HZ;
+        let denominator = (width - 1) as f32;
+        // A column is narrower than a 5 % band above ~800 Hz. Take the tallest
+        // band whose center falls inside the column instead of point-sampling,
+        // so a narrow high-frequency peak cannot fall between two columns.
+        let half_step = ratio.powf(0.5 / denominator);
+        for column in 0..width {
+            let center = MIN_HZ * ratio.powf(column as f32 / denominator);
+            let lo = if column == 0 {
+                MIN_HZ
+            } else {
+                center / half_step
+            };
+            let hi = if column + 1 == width {
+                MAX_HZ
+            } else {
+                center * half_step
+            };
+            self.display[column] = self.column_value(lo, hi, center);
         }
     }
 
     /// The most recent `remap_display` result.
     pub fn display_bins(&self) -> &[f32] {
         &self.display
+    }
+
+    /// The tallest band whose center lies in `lo..=hi`, or an interpolation
+    /// across the nearest centers when the column is narrower than a band.
+    fn column_value(&self, lo: f32, hi: f32, center: f32) -> f32 {
+        let start = self.bands.partition_point(|band| band.center < lo);
+        let end = self.bands.partition_point(|band| band.center <= hi);
+        if start < end {
+            self.bins[start..end].iter().copied().fold(0.0, f32::max)
+        } else {
+            self.value_at(center)
+        }
+    }
+
+    /// Interpolate the band heights at `frequency` on the log axis.
+    fn value_at(&self, frequency: f32) -> f32 {
+        let bands = &self.bands;
+        if bands.is_empty() {
+            return 0.0;
+        }
+        if frequency <= bands[0].center {
+            return self.bins[0];
+        }
+        let last = bands.len() - 1;
+        if frequency >= bands[last].center {
+            return self.bins[last];
+        }
+
+        let upper = bands.partition_point(|band| band.center < frequency);
+        let lower = upper - 1;
+        let a = bands[lower].center;
+        let b = bands[upper].center;
+        let t = ((frequency / a).ln() / (b / a).ln()).clamp(0.0, 1.0);
+        self.bins[lower] * (1.0 - t) + self.bins[upper] * t
     }
 
     fn release(&mut self) {
@@ -211,6 +286,7 @@ impl Spectrum {
             bands.push(Band {
                 lo: freq,
                 hi,
+                center: (freq + hi) * 0.5,
                 start: start.min(end),
                 end,
             });
@@ -219,12 +295,12 @@ impl Spectrum {
 
         let count = bands.len();
         self.bands = bands;
-        if self.band_peaks.len() != count {
-            self.band_peaks.resize(count, PEAK_FLOOR);
-        }
-        if self.bins.len() != count {
-            self.bins.resize(count, 0.0);
-        }
+        self.magnitudes.clear();
+        self.magnitudes.resize(count, 0.0);
+        self.bins.clear();
+        self.bins.resize(count, 0.0);
+        self.display.clear();
+        self.peak = PEAK_FLOOR;
     }
 }
 
@@ -246,6 +322,14 @@ mod tests {
             .collect()
     }
 
+    fn tone_band(spectrum: &Spectrum, frequency: f32) -> usize {
+        spectrum
+            .bands
+            .iter()
+            .position(|band| band.lo <= frequency && frequency < band.hi)
+            .expect("frequency is covered by a band")
+    }
+
     #[test]
     fn bands_tile_from_20_hz_to_20_khz() {
         let mut spectrum = Spectrum::new(DEFAULT_DECAY);
@@ -265,21 +349,17 @@ mod tests {
         for band in &spectrum.bands {
             assert!(band.hi > band.lo);
             assert!(band.start <= band.end);
+            assert!(band.lo <= band.center && band.center < band.hi);
         }
     }
 
     #[test]
-    fn finds_a_tone_and_decays_after_it_stops() {
+    fn finds_a_tone_without_smearing_it_across_the_screen() {
         let mut spectrum = Spectrum::new(DEFAULT_DECAY);
-        let sample_rate = 44_100;
-        spectrum.push(&sine(1_000.0, sample_rate, FFT_SIZE));
-        spectrum.update(sample_rate);
+        spectrum.push(&sine(1_000.0, 44_100, FFT_SIZE));
+        spectrum.update(44_100);
 
-        let tone_band = spectrum
-            .bands
-            .iter()
-            .position(|band| band.lo <= 1_000.0 && 1_000.0 < band.hi)
-            .expect("1 kHz band");
+        let band = tone_band(&spectrum, 1_000.0);
         let loudest = spectrum
             .bins
             .iter()
@@ -287,26 +367,129 @@ mod tests {
             .max_by(|a, b| a.1.total_cmp(b.1))
             .map(|(index, _)| index)
             .expect("bins");
-
         assert!(
-            (loudest as i32 - tone_band as i32).abs() <= 1,
-            "loudest={loudest} tone={tone_band}"
+            (loudest as i32 - band as i32).abs() <= 1,
+            "loudest={loudest} tone={band}"
         );
-        assert!(spectrum.bins[tone_band] > 0.1);
+        assert!(spectrum.bins[band] > 0.9);
+        // The old per-band gain left four neighbours at 85 % as well.
+        let tall = spectrum.bins.iter().filter(|value| **value > 0.5).count();
+        assert!(tall <= 2, "{tall} bands above half height");
         assert!(spectrum.bins[0] < 0.05, "no energy at 20 Hz");
-
-        let before = spectrum.bins[tone_band];
-        spectrum.push(&vec![0.0; FFT_SIZE]);
-        spectrum.update(sample_rate);
-        assert!((spectrum.bins[tone_band] - before * DEFAULT_DECAY).abs() < 1e-6);
     }
 
     #[test]
-    fn remap_interpolates_across_the_width() {
+    fn a_quiet_band_does_not_get_the_loud_bands_gain() {
+        let sample_rate = 44_100;
+        let mixed: Vec<f32> = (0..FFT_SIZE)
+            .map(|i| {
+                let t = i as f32 / sample_rate as f32;
+                (TAU * 1_000.0 * t).sin() + 0.05 * (TAU * 5_000.0 * t).sin()
+            })
+            .collect();
         let mut spectrum = Spectrum::new(DEFAULT_DECAY);
-        spectrum.bins = vec![0.0, 1.0];
-        spectrum.remap_display(3);
-        assert_eq!(spectrum.display_bins(), &[0.0, 0.5, 1.0]);
+        spectrum.push(&mixed);
+        spectrum.update(sample_rate);
+
+        let loud = tone_band(&spectrum, 1_000.0);
+        let quiet = tone_band(&spectrum, 5_000.0);
+        assert!(spectrum.bins[loud] > 0.9);
+        assert!(
+            spectrum.bins[quiet] < spectrum.bins[loud] * 0.5,
+            "quiet band reached {:.3} vs {:.3}",
+            spectrum.bins[quiet],
+            spectrum.bins[loud]
+        );
+    }
+
+    #[test]
+    fn decays_after_the_tone_stops() {
+        let mut spectrum = Spectrum::new(DEFAULT_DECAY);
+        let sample_rate = 44_100;
+        spectrum.push(&sine(1_000.0, sample_rate, FFT_SIZE));
+        spectrum.update(sample_rate);
+        let band = tone_band(&spectrum, 1_000.0);
+        let before = spectrum.bins[band];
+        assert!(before > 0.9);
+
+        spectrum.push(&vec![0.0; FFT_SIZE]);
+        spectrum.update(sample_rate);
+        assert!((spectrum.bins[band] - before * DEFAULT_DECAY).abs() < 1e-5);
+    }
+
+    #[test]
+    fn one_khz_lands_at_its_log_frequency() {
+        let mut spectrum = Spectrum::new(DEFAULT_DECAY);
+        spectrum.push(&sine(1_000.0, 44_100, FFT_SIZE));
+        spectrum.update(44_100);
+        spectrum.remap_display(101);
+
+        let peak = spectrum
+            .display
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .map(|(index, _)| index)
+            .expect("display");
+        // 20 Hz * 1000^(57/100) is within 2 % of 1 kHz.
+        assert!((peak as i32 - 57).abs() <= 1, "peak at column {peak}");
+
+        // Ten kHz is near 90 % of a 20 Hz..20 kHz log axis, not at the peak.
+        spectrum.bins.fill(0.0);
+        spectrum.push(&sine(10_000.0, 44_100, FFT_SIZE));
+        spectrum.update(44_100);
+        spectrum.remap_display(101);
+        let high = spectrum
+            .display
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .map(|(index, _)| index)
+            .expect("display");
+        assert!((high as i32 - 90).abs() <= 1, "peak at column {high}");
+    }
+
+    #[test]
+    fn a_column_uses_the_tallest_band_inside_it() {
+        let mut spectrum = Spectrum::new(DEFAULT_DECAY);
+        spectrum.bands = [990.0, 1_000.0, 1_010.0]
+            .into_iter()
+            .map(|center| Band {
+                lo: center,
+                hi: center,
+                center,
+                start: 0,
+                end: 0,
+            })
+            .collect();
+        spectrum.bins = vec![0.0, 0.0, 1.0];
+
+        assert_eq!(spectrum.column_value(985.0, 1_015.0, 1_000.0), 1.0);
+        assert_eq!(spectrum.column_value(991.0, 999.0, 995.0), 0.0);
+    }
+
+    #[test]
+    fn interpolates_between_band_centers_on_a_log_axis() {
+        let mut spectrum = Spectrum::new(DEFAULT_DECAY);
+        spectrum.bands = [100.0, 1_000.0, 10_000.0]
+            .into_iter()
+            .map(|center| Band {
+                lo: center,
+                hi: center,
+                center,
+                start: 0,
+                end: 0,
+            })
+            .collect();
+        spectrum.bins = vec![0.0, 1.0, 0.0];
+
+        assert_eq!(spectrum.value_at(100.0), 0.0);
+        assert_eq!(spectrum.value_at(1_000.0), 1.0);
+        assert!((spectrum.value_at(316.23) - 0.5).abs() < 1e-4);
+        assert!((spectrum.value_at(3_162.3) - 0.5).abs() < 1e-4);
+        assert_eq!(spectrum.value_at(10_000.0), 0.0);
+        assert_eq!(spectrum.value_at(5.0), 0.0);
+        assert_eq!(spectrum.value_at(20_000.0), 0.0);
     }
 
     #[test]
