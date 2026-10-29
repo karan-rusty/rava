@@ -31,6 +31,9 @@ Examples:
   curl -LsSf https://raw.githubusercontent.com/karan-rusty/rava/main/install.sh | sh
   sh install.sh --version v0.1.0 --prefix /usr/local
   sh install.sh --uninstall
+
+The binary is installed into DIR/bin. If that directory is not on your PATH,
+the installer prints the command to add it; it does not modify startup files.
 EOF
 }
 
@@ -160,14 +163,44 @@ fi
 
 printf 'installed rava %s to %s\n' "$version" "$BIN_DIR/rava"
 
+on_path=0
 case ":${PATH:-}:" in
-    *":$BIN_DIR:"*) ;;
-    *)
-        printf '\n%s is not in your PATH. Add it with:\n' "$BIN_DIR"
-        printf '  export PATH="%s:$PATH"\n' "$BIN_DIR"
-        printf 'Add that line to your shell profile to keep it.\n'
-        ;;
+    *":$BIN_DIR:"*) on_path=1 ;;
 esac
+
+if [ "$on_path" -eq 1 ]; then
+    resolved=$(command -v rava 2>/dev/null || true)
+    if [ "$resolved" = "$BIN_DIR/rava" ]; then
+        printf 'rava is on your PATH; open a new terminal and run `rava` from any directory.\n'
+    else
+        printf 'installed to %s, but `rava` currently resolves to %s.\n' \
+            "$BIN_DIR/rava" "${resolved:-nothing}"
+        printf 'Put %s earlier in your PATH.\n' "$BIN_DIR"
+    fi
+else
+    shell=${SHELL:-}
+    shell=${shell##*/}
+    printf '\n%s is not in your PATH. Add it with:\n' "$BIN_DIR"
+    case "$shell" in
+        fish)
+            printf '  fish_add_path "%s"\n' "$BIN_DIR"
+            printf 'Run that in fish; it takes effect immediately and in new shells.\n'
+            ;;
+        bash)
+            printf '  echo '\''export PATH="%s:$PATH"'\'' >> ~/.bashrc\n' "$BIN_DIR"
+            printf 'Then open a new terminal.\n'
+            ;;
+        zsh)
+            printf '  echo '\''export PATH="%s:$PATH"'\'' >> ~/.zshrc\n' "$BIN_DIR"
+            printf 'Then open a new terminal.\n'
+            ;;
+        *)
+            printf '  export PATH="%s:$PATH"\n' "$BIN_DIR"
+            printf 'Add that line to your shell profile to keep it.\n'
+            ;;
+    esac
+    printf '(The installer does not edit your shell startup files.)\n'
+fi
 
 if version_output=$("$BIN_DIR/rava" --version 2>/dev/null); then
     printf '%s\n' "$version_output"
