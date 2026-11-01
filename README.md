@@ -1,6 +1,8 @@
 # rava
 
-A terminal audio visualizer for Linux. It draws what your system is playing.
+rava is a terminal audio visualizer for Linux, written in Rust. It draws live
+system audio as a mirrored braille spectrum or wide bars, and stays blank while
+nothing plays.
 
 ![The spectrum view](docs/rava-spectrum.png)
 
