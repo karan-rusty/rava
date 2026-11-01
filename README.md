@@ -51,4 +51,6 @@ Every key is optional, and `assets/config.toml` documents them all.
 
 The spectrum is adapted from [NoctaVox](https://github.com/Jaxx497/NoctaVox) (MIT). rava is MIT licensed.
 
-Most of the renderer and spectrum code was written with AI coding agents (OpenCode) and reviewed, tested and shipped by the author.
+Most of rava, including the NoctaVox port, the renderer and the spectrum code,
+was written with AI coding agents (OpenCode) and reviewed, tested and shipped
+by the author.
