@@ -10,11 +10,20 @@ Press `w` to switch between the braille spectrum and the wide bars.
 
 ## Install
 
+Download the prebuilt Linux binary from
+[Releases](https://github.com/karan-rusty/rava/releases/latest):
+
+```sh
+curl -L https://github.com/karan-rusty/rava/releases/download/v0.1.0/rava-v0.1.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
+```
+
+Or build from source:
+
 ```sh
 cargo install --git https://github.com/karan-rusty/rava --locked
 ```
 
-Needs Rust 1.95 or newer. Live audio also needs `parec` (PulseAudio or PipeWire).
+Building needs Rust 1.95 or newer. Live audio also needs `parec` (PulseAudio or PipeWire).
 
 Reinstall with `--force` to upgrade; `cargo uninstall rava` removes it.
 
@@ -41,3 +50,5 @@ Every key is optional, and `assets/config.toml` documents them all.
 ## Credits
 
 The spectrum is adapted from [NoctaVox](https://github.com/Jaxx497/NoctaVox) (MIT). rava is MIT licensed.
+
+Most of the renderer and spectrum code was written with AI coding agents (OpenCode) and reviewed, tested and shipped by the author.
