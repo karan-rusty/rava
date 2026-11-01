@@ -1,75 +1,46 @@
-use realfft::RealFftPlanner;
-use realfft::RealToComplex;
-use std::sync::Arc;
+//! Frequency-band analyser for the wide bar visualizer.
+
+use crate::dsp::{Fft, History};
 
 const FFT_SIZE: usize = 2048;
 const BARS: usize = 32;
 const FLOOR_DB: f32 = -70.0;
+const DYNAMIC_RANGE_DB: f32 = -FLOOR_DB;
 
 pub struct Analyzer {
-    fft: Arc<dyn RealToComplex<f32>>,
-    window: Vec<f32>,
-    input: Vec<f32>,
-    spectrum: Vec<realfft::num_complex::Complex<f32>>,
-    scratch: Vec<realfft::num_complex::Complex<f32>>,
-    history: Vec<f32>,
+    fft: Fft,
+    history: History,
     bands: Vec<(usize, usize)>,
     values: Vec<f32>,
 }
 
 impl Analyzer {
     pub fn new(sample_rate: u32) -> Self {
-        let mut planner = RealFftPlanner::<f32>::new();
-        let fft = planner.plan_fft_forward(FFT_SIZE);
-        let input = fft.make_input_vec();
-        let spectrum = fft.make_output_vec();
-        let scratch = fft.make_scratch_vec();
-        let window = (0..FFT_SIZE)
-            .map(|i| 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / FFT_SIZE as f32).cos())
-            .collect();
-        let bands = make_bands(sample_rate);
         Self {
-            fft,
-            window,
-            input,
-            spectrum,
-            scratch,
-            history: vec![0.0; FFT_SIZE],
-            bands,
+            fft: Fft::new(FFT_SIZE),
+            history: History::new(FFT_SIZE),
+            bands: make_bands(sample_rate),
             values: vec![0.0; BARS],
         }
     }
 
     pub fn push(&mut self, samples: &[f32]) {
-        if samples.len() >= FFT_SIZE {
-            self.history
-                .copy_from_slice(&samples[samples.len() - FFT_SIZE..]);
-            return;
-        }
-        let keep = FFT_SIZE - samples.len();
-        self.history.copy_within(samples.len().., 0);
-        self.history[keep..].copy_from_slice(samples);
+        self.history.push(samples);
     }
 
     pub fn update(&mut self, dt: f32) {
-        for (i, sample) in self.history.iter().enumerate() {
-            self.input[i] = sample * self.window[i];
-        }
-        self.fft
-            .process_with_scratch(&mut self.input, &mut self.spectrum, &mut self.scratch)
-            .expect("FFT buffer sizes are fixed");
-
+        let spectrum = self.fft.process(self.history.samples());
         let scale = 2.0 / FFT_SIZE as f32;
         for (i, (start, end)) in self.bands.iter().enumerate() {
-            let end = (*end).min(self.spectrum.len());
+            let end = (*end).min(spectrum.len());
             let start = (*start).min(end.saturating_sub(1));
-            let mean = self.spectrum[start..end]
+            let mean = spectrum[start..end]
                 .iter()
-                .map(|value| (value.re * value.re + value.im * value.im).sqrt())
+                .map(|value| value.norm())
                 .sum::<f32>()
                 / (end - start).max(1) as f32;
             let db = 20.0 * (mean * scale + 1e-9).log10();
-            let target = ((db - FLOOR_DB) / -FLOOR_DB).clamp(0.0, 1.0);
+            let target = ((db - FLOOR_DB) / DYNAMIC_RANGE_DB).clamp(0.0, 1.0);
             let fall = dt * 1.6;
             let current = self.values[i];
             self.values[i] = if target > current {
@@ -99,4 +70,60 @@ fn make_bands(sample_rate: u32) -> Vec<(usize, usize)> {
             (start, end)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::f32::consts::TAU;
+
+    fn sine(frequency: f32, sample_rate: u32) -> Vec<f32> {
+        (0..FFT_SIZE)
+            .map(|i| (TAU * frequency * i as f32 / sample_rate as f32).sin())
+            .collect()
+    }
+
+    fn tone_band(frequency: f32) -> usize {
+        let resolution = 44_100.0 / FFT_SIZE as f32;
+        make_bands(44_100)
+            .iter()
+            .position(|(start, end)| {
+                *start as f32 * resolution <= frequency && frequency < *end as f32 * resolution
+            })
+            .expect("frequency is covered by a band")
+    }
+
+    #[test]
+    fn a_tone_lights_the_band_that_contains_it() {
+        let mut analyzer = Analyzer::new(44_100);
+        analyzer.push(&sine(1_000.0, 44_100));
+        analyzer.update(0.016);
+
+        let band = tone_band(1_000.0);
+        let loudest = analyzer
+            .values()
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .map(|(index, _)| index)
+            .expect("values");
+        assert!(
+            (loudest as i32 - band as i32).abs() <= 1,
+            "loudest={loudest} tone={band}"
+        );
+        assert!(analyzer.values()[band] > 0.5);
+    }
+
+    #[test]
+    fn values_fall_after_the_tone_stops() {
+        let mut analyzer = Analyzer::new(44_100);
+        analyzer.push(&sine(1_000.0, 44_100));
+        analyzer.update(0.016);
+        let before = analyzer.values()[tone_band(1_000.0)];
+        assert!(before > 0.5);
+
+        analyzer.push(&[0.0; FFT_SIZE]);
+        analyzer.update(0.05);
+        assert!(analyzer.values()[tone_band(1_000.0)] < before);
+    }
 }

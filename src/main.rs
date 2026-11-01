@@ -17,6 +17,7 @@ mod analyzer;
 mod audio;
 mod color;
 mod config;
+mod dsp;
 mod render;
 mod spectrum;
 
