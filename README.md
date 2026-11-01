@@ -14,6 +14,8 @@ cargo install --git https://github.com/karan-rusty/rava --locked
 
 From a checkout, `cargo install --path . --locked` works too. Needs Rust 1.95 or newer. Live capture needs `parec` from PulseAudio or PipeWire; `--file` and `--demo` do not.
 
+The binary lands in `~/.cargo/bin`. To upgrade, rerun the command with `--force`; to remove it, `cargo uninstall rava`.
+
 ## Run
 
 ```sh
