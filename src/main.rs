@@ -62,7 +62,7 @@ fn run() -> Result<()> {
     // playing; `--source` (or `[input] source`) picks a specific source.
     let live = args.file.is_none() && !args.demo;
     let mut source: Box<dyn audio::Capture> = if let Some(path) = args.file.as_deref() {
-        Box::new(FileSource::open(path, SAMPLE_RATE, true)?)
+        Box::new(FileSource::open(path, SAMPLE_RATE)?)
     } else if args.demo {
         Box::new(TestSource::new(SAMPLE_RATE))
     } else {

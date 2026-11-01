@@ -98,7 +98,7 @@ impl TestSource {
 }
 
 impl Capture for TestSource {
-    fn read(&mut self, out: &mut Vec<f32>) -> Result<usize> {
+    fn read(&mut self, out: &mut Vec<f32>) -> Result<()> {
         self.pacer.wait(CHUNK_FRAMES);
         let rate = self.rate as f64;
         out.clear();
@@ -110,7 +110,7 @@ impl Capture for TestSource {
             out.push(right);
         }
         self.position += CHUNK_FRAMES as u64;
-        Ok(CHUNK_FRAMES)
+        Ok(())
     }
 
     fn sample_rate(&self) -> u32 {

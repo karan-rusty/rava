@@ -4,22 +4,22 @@ use std::time::{Duration, Instant};
 mod file;
 mod gate;
 mod live;
-pub mod synth;
+mod synth;
 
 pub(crate) use file::FileSource;
-pub use gate::SilenceGate;
-pub use live::LiveSource;
-pub use synth::TestSource;
+pub(crate) use gate::SilenceGate;
+pub(crate) use live::LiveSource;
+pub(crate) use synth::TestSource;
 
-pub const CHUNK_FRAMES: usize = 735;
+pub(crate) const CHUNK_FRAMES: usize = 735;
 
-pub trait Capture {
+pub(crate) trait Capture {
     /// Replaces `out` with the next chunk of interleaved stereo frames.
-    fn read(&mut self, out: &mut Vec<f32>) -> Result<usize>;
+    fn read(&mut self, out: &mut Vec<f32>) -> Result<()>;
     fn sample_rate(&self) -> u32;
 }
 
-pub struct Pacer {
+pub(crate) struct Pacer {
     start: Instant,
     frames: u64,
     rate: u32,

@@ -74,7 +74,7 @@ impl LiveSource {
 }
 
 impl Capture for LiveSource {
-    fn read(&mut self, out: &mut Vec<f32>) -> Result<usize> {
+    fn read(&mut self, out: &mut Vec<f32>) -> Result<()> {
         let mut filled = 0;
         while filled < self.bytes.len() {
             match self.stream.read(&mut self.bytes[filled..]) {
@@ -100,7 +100,7 @@ impl Capture for LiveSource {
                 sample[0], sample[1], sample[2], sample[3],
             ]));
         }
-        Ok(CHUNK_FRAMES)
+        Ok(())
     }
 
     fn sample_rate(&self) -> u32 {
