@@ -8,19 +8,11 @@ Press `w` to switch between the mirrored braille spectrum, adapted from [NoctaVo
 
 ## Install
 
-Prebuilt binary:
-
-```sh
-curl -LsSf https://raw.githubusercontent.com/karan-rusty/rava/main/install.sh | sh
-```
-
-From source:
-
 ```sh
 cargo install --git https://github.com/karan-rusty/rava --locked
 ```
 
-The prebuilt binaries are Linux only. Live capture needs `parec` from PulseAudio or PipeWire. `--file` and `--demo` do not. Building from source needs Rust 1.95 or newer.
+From a checkout, `cargo install --path . --locked` works too. Needs Rust 1.95 or newer. Live capture needs `parec` from PulseAudio or PipeWire; `--file` and `--demo` do not.
 
 ## Run
 
