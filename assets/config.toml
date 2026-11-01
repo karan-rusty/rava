@@ -18,12 +18,12 @@ idle_after_ms = 1000
 # Press `w` while running to switch.
 mode = "spectrum"
 
-# Number of bars; 0 means "as many as the terminal fits".
+# Number of bars per channel group; 0 means "as many as the terminal fits".
 bars = 0
-# Columns reserved per bar, and blank columns between bars.
+# Columns (or rows, when horizontal) reserved per bar, and blank space between.
 bar_width = 2
 bar_spacing = 0
-# "average" (fold both channels), "split", or "mirror".
+# Bars only: "average" (fold both channels), "split", or "mirror".
 channel_mode = "average"
 
 [output]
@@ -31,13 +31,14 @@ channel_mode = "average"
 orientation = "vertical"
 # "gradient" uses the list below; "solid" uses `color` everywhere.
 color_mode = "gradient"
-color = "#00e5ff"
+color = "#d2a55c"
 # From quietest to loudest. The spectrum scrolls through it horizontally.
-gradient = ["#00e5ff", "#2979ff", "#7c4dff", "#ff4081"]
+# Teal dusk, copper shadow, amber cloud, cream halo.
+gradient = ["#5d7372", "#a8794e", "#e0b56b", "#f2dcb4"]
 
 [spectrum]
-# Grow the bars above and below the center line.
-mirror = false
+# Mirror the bars around the center line. false grows them from the bottom.
+mirror = true
 # Per-frame fall multiplier after a peak, clamped to 0.7..=0.97.
 # Higher values hold the bars longer.
 decay = 0.85

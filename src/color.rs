@@ -69,12 +69,6 @@ impl Rgb {
         use std::fmt::Write;
         let _ = write!(out, "38;2;{};{};{}", self.r, self.g, self.b);
     }
-
-    /// Appends the ANSI 24-bit background parameters (without the `ESC[`/`m`).
-    pub fn write_bg(self, out: &mut String) {
-        use std::fmt::Write;
-        let _ = write!(out, "48;2;{};{};{}", self.r, self.g, self.b);
-    }
 }
 
 fn parse_hex(hex: &str) -> Result<Rgb> {

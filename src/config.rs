@@ -76,11 +76,13 @@ pub struct Input {
     pub idle_after_ms: u64,
 }
 
+pub const DEFAULT_THRESHOLD_DB: f32 = -60.0;
+
 impl Default for Input {
     fn default() -> Self {
         Self {
             source: "auto".to_owned(),
-            threshold_db: -60.0,
+            threshold_db: DEFAULT_THRESHOLD_DB,
             idle_after_ms: 1_000,
         }
     }
@@ -91,12 +93,13 @@ impl Default for Input {
 pub struct General {
     /// Visualizer shown at startup; `w` switches between the two at runtime.
     pub mode: Mode,
-    /// Number of bars to draw; `0` means as many as fit the terminal.
+    /// Number of bars per channel group; `0` means as many as fit.
     pub bars: usize,
     /// Columns (or rows, when horizontal) reserved for each bar.
     pub bar_width: u16,
-    /// Blank columns between neighboring bars.
+    /// Blank columns (or rows, when horizontal) between neighboring bars.
     pub bar_spacing: u16,
+    /// Bars only: how the two channels are arranged.
     pub channel_mode: ChannelMode,
 }
 
@@ -117,7 +120,8 @@ impl Default for General {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SpectrumSettings {
-    /// Grow the bars both above and below the center line.
+    /// Mirror the bars around the center line; `false` grows them from the
+    /// bottom.
     pub mirror: bool,
     /// How fast bars fall after a peak, between `0.7` and `0.97`; higher is
     /// slower. Out-of-range values are clamped by the analyser.
@@ -129,7 +133,7 @@ pub struct SpectrumSettings {
 impl Default for SpectrumSettings {
     fn default() -> Self {
         Self {
-            mirror: false,
+            mirror: true,
             decay: DEFAULT_DECAY,
             speed: 0.0,
         }
@@ -152,8 +156,9 @@ impl Default for Output {
         Self {
             orientation: Orientation::Vertical,
             color_mode: ColorMode::Gradient,
-            color: "#00e5ff".to_owned(),
-            gradient: ["#00e5ff", "#2979ff", "#7c4dff", "#ff4081"]
+            color: "#d2a55c".to_owned(),
+            // Teal dusk, copper shadow, amber cloud, cream halo.
+            gradient: ["#5d7372", "#a8794e", "#e0b56b", "#f2dcb4"]
                 .into_iter()
                 .map(str::to_owned)
                 .collect(),
@@ -199,7 +204,7 @@ mod tests {
         assert_eq!(config.input.idle_after_ms, 1_000);
         assert_eq!(config.general.mode, Mode::Spectrum);
         assert_eq!(config.general.bars, 0);
-        assert!(!config.spectrum.mirror);
+        assert!(config.spectrum.mirror);
         assert_eq!(config.spectrum.decay, DEFAULT_DECAY);
         assert_eq!(config.spectrum.speed, 0.0);
     }
@@ -229,7 +234,7 @@ mod tests {
             mode = "bars"
 
             [spectrum]
-            mirror = true
+            mirror = false
             decay = 0.9
             speed = 0.25
             "#,
@@ -237,7 +242,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(config.general.mode, Mode::Bars);
-        assert!(config.spectrum.mirror);
+        assert!(!config.spectrum.mirror);
         assert_eq!(config.spectrum.decay, 0.9);
         assert_eq!(config.spectrum.speed, 0.25);
     }

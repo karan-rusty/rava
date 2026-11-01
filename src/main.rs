@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use clap::Parser;
 use crossterm::cursor::{Hide, Show};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{
     Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -77,23 +77,39 @@ fn run() -> Result<()> {
     });
 
     let _terminal = Terminal::enter()?;
+    let sample_rate = source.sample_rate();
     let mut spectrum = spectrum::Spectrum::new(config.spectrum.decay);
-    let mut analyzer = analyzer::Analyzer::new(source.sample_rate());
+    let mut analyzer = analyzer::Analyzer::new(sample_rate);
+    let stereo = matches!(
+        config.general.channel_mode,
+        config::ChannelMode::Split | config::ChannelMode::Mirror
+    );
+    let split = config.general.channel_mode == config::ChannelMode::Split;
+    let mut left_analyzer = stereo.then(|| analyzer::Analyzer::new(sample_rate));
+    let mut right_analyzer = split.then(|| analyzer::Analyzer::new(sample_rate));
     let mut renderer = render::Renderer::new(&config)?;
     let mut samples = Vec::new();
     let mut mono = Vec::new();
+    let mut left = Vec::new();
+    let mut right = Vec::new();
     let mut previous = Instant::now();
     let started = Instant::now();
     let mut drawing = false;
 
-    loop {
-        if event::poll(Duration::ZERO).context("could not poll terminal events")?
-            && let Event::Key(key) = event::read().context("could not read terminal event")?
-            && key.kind != KeyEventKind::Release
-        {
-            match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => break,
-                KeyCode::Char('w') => mode = mode.next(),
+    'frame: loop {
+        while event::poll(Duration::ZERO).context("could not poll terminal events")? {
+            match event::read().context("could not read terminal event")? {
+                Event::Key(key) if key.kind != KeyEventKind::Release => match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => break 'frame,
+                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        break 'frame;
+                    }
+                    KeyCode::Char('w') => mode = mode.next(),
+                    _ => {}
+                },
+                Event::Resize(columns, rows) => {
+                    renderer = render::Renderer::with_size(&config, columns, rows)?;
+                }
                 _ => {}
             }
         }
@@ -104,19 +120,28 @@ fn run() -> Result<()> {
         source.read(&mut samples)?;
 
         // Both analysers want mono frames; the bars used to see interleaved
-        // stereo, which put every band at twice its real frequency.
+        // stereo, which put every band at twice its real frequency. Split and
+        // mirror bars also need the channels kept apart.
         mono.clear();
-        mono.extend(
-            samples
-                .as_chunks::<2>()
-                .0
-                .iter()
-                .map(|frame| (frame[0] + frame[1]) * 0.5),
-        );
+        left.clear();
+        right.clear();
+        for frame in samples.as_chunks::<2>().0 {
+            mono.push((frame[0] + frame[1]) * 0.5);
+            left.push(frame[0]);
+            right.push(frame[1]);
+        }
         analyzer.push(&mono);
         spectrum.push(&mono);
         analyzer.update(dt);
-        spectrum.update(source.sample_rate());
+        spectrum.update(sample_rate);
+        if let Some(left_analyzer) = left_analyzer.as_mut() {
+            left_analyzer.push(&left);
+            left_analyzer.update(dt);
+        }
+        if let Some(right_analyzer) = right_analyzer.as_mut() {
+            right_analyzer.push(&right);
+            right_analyzer.update(dt);
+        }
 
         // Live input starts blank and blanks again after a quiet spell; the
         // gate sees the raw (not mono-folded) stream so out-of-phase channels
@@ -128,7 +153,12 @@ fn run() -> Result<()> {
 
         if active {
             match mode {
-                config::Mode::Bars => renderer.draw_bars(analyzer.values())?,
+                config::Mode::Bars => {
+                    let empty: &[f32] = &[];
+                    let left_values = left_analyzer.as_ref().map_or(empty, |a| a.values());
+                    let right_values = right_analyzer.as_ref().map_or(empty, |a| a.values());
+                    renderer.draw_bars(analyzer.values(), left_values, right_values)?;
+                }
                 config::Mode::Spectrum => {
                     spectrum.remap_display(renderer.width());
                     renderer

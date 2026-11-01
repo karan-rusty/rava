@@ -6,7 +6,7 @@
 
 use std::time::{Duration, Instant};
 
-pub const DEFAULT_THRESHOLD_DB: f32 = -60.0;
+use crate::config::DEFAULT_THRESHOLD_DB;
 
 pub struct SilenceGate {
     /// Linear RMS threshold derived from dBFS.
