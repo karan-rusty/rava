@@ -2,10 +2,10 @@
 
 ## NoctaVox
 
-`src/spectrum.rs`, the braille spectrum renderer in `src/render.rs`, and the
-scrolling gradient in `src/color.rs` are adapted from
-[NoctaVox](https://github.com/Jaxx497/NoctaVox) (`src/visualization/spectrum.rs`,
-`src/tui/widgets/progress/spectrum.rs`, and the theme gradient helpers).
+rava's spectrum is inspired by
+[NoctaVox](https://github.com/Jaxx497/NoctaVox): its visual style, logarithmic
+band layout and per-band auto-gain. rava reimplements the spectrum rather than
+copying NoctaVox's source; the MIT notice below is kept in acknowledgement.
 
 MIT License
 

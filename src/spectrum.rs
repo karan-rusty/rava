@@ -1,7 +1,7 @@
 //! A NoctaVox-style braille spectrum with a true frequency axis.
 //!
 //! The Hann window, per-band auto-gain, logarithmic band layout, decay and
-//! braille presentation come from NoctaVox (`src/visualization/spectrum.rs`,
+//! braille presentation are inspired by NoctaVox (`src/visualization/spectrum.rs`,
 //! MIT; see `THIRD_PARTY_NOTICES.md`). Each band is normalized against its own
 //! running peak, so quiet parts of a mix rise to fill their bands instead of
 //! collapsing next to the kick drum and the display keeps the shape of the
